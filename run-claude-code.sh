@@ -7,28 +7,23 @@ set -e
 # Source the env vars written by setup (ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL).
 source /tmp/claude-code-env.sh
 
-# Start LiteLLM translation proxy if needed (non-Anthropic api_types).
-# The proxy accepts Anthropic-format requests and translates them to the
-# target format (OpenAI, Google, etc.).
-PROXY_PID=""
-if [ -f /tmp/litellm-config.yaml ]; then
-  echo "Starting API translation proxy (litellm)..."
-  litellm --config /tmp/litellm-config.yaml --port 4000 \
-    > /data/proxy.log 2>&1 &
-  PROXY_PID=$!
-  for i in $(seq 1 30); do
-    if curl -sf http://localhost:4000/health/liveliness > /dev/null 2>&1; then
-      echo "API proxy ready"
-      break
-    fi
-    if [ "$i" -eq 30 ]; then
-      echo "API proxy not ready after 30s — check /data/proxy.log"
-      echo "proxy_failed" > /data/.stop-reason
-      exit 1
-    fi
-    sleep 1
-  done
-fi
+# Start LiteLLM translation proxy.
+echo "Starting API translation proxy (litellm)..."
+litellm --config /tmp/litellm-config.yaml --port 4000 \
+  > /data/proxy.log 2>&1 &
+PROXY_PID=$!
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:4000/health/liveliness > /dev/null 2>&1; then
+    echo "API proxy ready"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "API proxy not ready after 30s — check /data/proxy.log"
+    echo "proxy_failed" > /data/.stop-reason
+    exit 1
+  fi
+  sleep 1
+done
 
 # Copy /my-info/ into the workspace so the agent can access it via ./my-info/
 WORKSPACE=/root/workspace
@@ -135,7 +130,7 @@ echo "$STOP_REASON" > /data/.stop-reason
 
 # Kill Claude Code, MCP, and proxy processes
 kill $AGENT_PID 2>/dev/null || true
-[ -n "$PROXY_PID" ] && kill $PROXY_PID 2>/dev/null || true
+kill $PROXY_PID 2>/dev/null || true
 pkill -f "@anthropic-ai/claude-code" 2>/dev/null || true
 pkill -f "@playwright/mcp" 2>/dev/null || true
 pkill -f "litellm" 2>/dev/null || true
